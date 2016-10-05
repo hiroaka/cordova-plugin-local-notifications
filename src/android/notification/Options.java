@@ -34,6 +34,8 @@ import org.json.JSONObject;
 
 import java.util.Date;
 
+import br.com.furia7.clinicapp.moacir.R;
+
 /**
  * Wrapper around the JSON object passed through JS which contains all
  * possible option values. Class provides simple readers and more advanced
@@ -64,7 +66,7 @@ public class Options {
      *      Application context
      */
     public Options(Context context){
-    	this.context = context;
+        this.context = context;
         this.assets  = AssetUtil.getInstance(context);
     }
 
@@ -131,13 +133,13 @@ public class Options {
 
         if (options.has("iconUri") && !options.optBoolean("updated"))
             return;
-
         Uri iconUri  = assets.parse(options.optString("icon", "res://icon"));
-        Uri soundUri = assets.parseSound(options.optString("sound", null));
-
+        Uri mySound = Uri.parse("android.resource://br.com.furia7.clinicapp.moacir/" + R.raw.notification );
+        
+        
         try {
             options.put("iconUri", iconUri.toString());
-            options.put("soundUri", soundUri.toString());
+            options.put("soundUri", mySound.toString());
         } catch (JSONException e) {
             e.printStackTrace();
         }
@@ -242,7 +244,7 @@ public class Options {
         String hex = options.optString("led", null);
 
         if (hex == null) {
-            return 0;
+            return NotificationCompat.DEFAULT_LIGHTS;
         }
 
         int aRGB = Integer.parseInt(hex, 16);
