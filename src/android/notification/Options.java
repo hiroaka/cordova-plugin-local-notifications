@@ -66,7 +66,7 @@ public class Options {
      *      Application context
      */
     public Options(Context context){
-        this.context = context;
+    	this.context = context;
         this.assets  = AssetUtil.getInstance(context);
     }
 

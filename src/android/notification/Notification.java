@@ -179,7 +179,16 @@ public class Notification {
             getAlarmMgr().setRepeating(AlarmManager.RTC_WAKEUP,
                     triggerTime, options.getRepeatInterval(), pi);
         } else {
-            getAlarmMgr().set(AlarmManager.RTC_WAKEUP, triggerTime, pi);
+
+            //para não tocar com delay
+            // getAlarmMgr().setExact(AlarmManager.RTC_WAKEUP, triggerTime, pi);
+            if (android.os.Build.VERSION.SDK_INT >= 19) {
+                getAlarmMgr().setExact(AlarmManager.RTC_WAKEUP, triggerTime, pi);
+            }
+            else
+            {
+                getAlarmMgr().set(AlarmManager.RTC_WAKEUP, triggerTime, pi);
+            }
         }
     }
 
