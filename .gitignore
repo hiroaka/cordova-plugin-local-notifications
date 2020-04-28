@@ -1,0 +1,7 @@
+/src/windows.old
+/src/windows/Microsoft.Toolkit.Uwp.Notifications.*
+/src/windows/**/.vs
+/src/windows/**/bin
+/src/windows/**/obj
+.idea
+src/cordova-plugin-local-notifications.iml

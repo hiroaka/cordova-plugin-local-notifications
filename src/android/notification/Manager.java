@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2013-2015 by appPlant UG. All rights reserved.
+ * Apache 2.0 License
  *
- * @APPPLANT_LICENSE_HEADER_START@
+ * Copyright (c) Sebastian Katzer 2017
  *
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apache License
@@ -17,96 +17,170 @@
  * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
  * Please see the License for the specific language governing rights and
  * limitations under the License.
- *
- * @APPPLANT_LICENSE_HEADER_END@
  */
+
+// codebeat:disable[TOO_MANY_FUNCTIONS]
 
 package de.appplant.cordova.plugin.notification;
 
+import android.annotation.SuppressLint;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.service.notification.StatusBarNotification;
+import android.support.v4.app.NotificationManagerCompat;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
-import static de.appplant.cordova.plugin.notification.Notification.PREF_KEY;
+import de.appplant.cordova.plugin.badge.BadgeImpl;
+
+import static android.os.Build.VERSION.SDK_INT;
+import static android.os.Build.VERSION_CODES.M;
+import static android.os.Build.VERSION_CODES.O;
+import static android.support.v4.app.NotificationCompat.PRIORITY_MIN;
+import static android.support.v4.app.NotificationCompat.PRIORITY_LOW;
+import static android.support.v4.app.NotificationCompat.PRIORITY_DEFAULT;
+import static android.support.v4.app.NotificationCompat.PRIORITY_HIGH;
+import static android.support.v4.app.NotificationCompat.PRIORITY_MAX;
+import static android.support.v4.app.NotificationManagerCompat.IMPORTANCE_MIN;
+import static android.support.v4.app.NotificationManagerCompat.IMPORTANCE_LOW;
+import static android.support.v4.app.NotificationManagerCompat.IMPORTANCE_DEFAULT;
+import static android.support.v4.app.NotificationManagerCompat.IMPORTANCE_HIGH;
+import static de.appplant.cordova.plugin.notification.Notification.PREF_KEY_ID;
+import static de.appplant.cordova.plugin.notification.Notification.Type.TRIGGERED;
+import de.appplant.cordova.plugin.notification.Options;
 
 /**
  * Central way to access all or single local notifications set by specific
  * state like triggered or scheduled. Offers shortcut ways to schedule,
  * cancel or clear local notifications.
  */
-public class Manager {
+public final class Manager {
 
-    // Context passed through constructor and used for notification builder.
+    static final String DEFAULT_CHANNEL_ID = "default-channel-id";
+
+    static final String DEFAULT_CHANNEL_DESCRIPTION = "Default channel";
+
+    // The application context
     private Context context;
 
     /**
      * Constructor
      *
-     * @param context
-     *      Application context
+     * @param context Application context
      */
-    private Manager(Context context){
+    private Manager(Context context) {
         this.context = context;
+        //createDefaultChannel();
     }
 
     /**
      * Static method to retrieve class instance.
      *
-     * @param context
-     *      Application context
+     * @param context Application context
      */
     public static Manager getInstance(Context context) {
         return new Manager(context);
     }
 
     /**
-     * Schedule local notification specified by JSON object.
-     *
-     * @param options
-     *      JSON object with set of options
-     * @param receiver
-     *      Receiver to handle the trigger event
+     * Check if app has local notification permission.
      */
-    public Notification schedule (JSONObject options, Class<?> receiver) {
-        return schedule(new Options(context).parse(options), receiver);
+    public boolean hasPermission () {
+        return getNotCompMgr().areNotificationsEnabled();
     }
 
     /**
-     * Schedule local notification specified by options object.
+     * Schedule local notification specified by request.
      *
-     * @param options
-     *      Set of notification options
-     * @param receiver
-     *      Receiver to handle the trigger event
+     * @param request Set of notification options.
+     * @param receiver Receiver to handle the trigger event.
      */
-    public Notification schedule (Options options, Class<?> receiver) {
-        Notification notification = new Builder(options)
-                .setTriggerReceiver(receiver)
-                .build();
+    public Notification schedule (Request request, Class<?> receiver) {
+        Options options    = request.getOptions();
+        Notification toast = new Notification(context, options);
 
-        notification.schedule();
+        toast.schedule(request, receiver);
 
-        return notification;
+        return toast;
     }
 
     /**
-     * Clear local notification specified by ID.
+     * TODO: temporary
+     */
+    @SuppressLint("WrongConstant")
+    public void createChannel(Options options) {
+        NotificationManager mgr = getNotMgr();
+        int importance = IMPORTANCE_DEFAULT;
+
+        if (SDK_INT < O)
+            return;
+
+        NotificationChannel channel = mgr.getNotificationChannel(options.getChannel());
+
+        if (channel != null)
+            return;
+
+        switch (options.getPrio()) {
+            case PRIORITY_MIN:
+                importance = IMPORTANCE_MIN;
+                break;
+            case PRIORITY_LOW:
+                importance = IMPORTANCE_LOW;
+                break;
+            case PRIORITY_DEFAULT:
+                importance = IMPORTANCE_DEFAULT;
+                break;
+            case PRIORITY_HIGH:
+                importance = IMPORTANCE_HIGH;
+                break;
+            case PRIORITY_MAX:
+                importance = IMPORTANCE_HIGH;
+                break;
+        }
+
+        channel = new NotificationChannel(
+                options.getChannel(), options.getChannelDescription(), importance);
+		if(!options.isSilent() && importance > IMPORTANCE_DEFAULT) channel.setBypassDnd(true);
+		if(!options.isWithoutLights()) channel.enableLights(true);
+		if(options.isWithVibration()) {
+			channel.enableVibration(true);
+		} else {
+			channel.setVibrationPattern(new long[]{ 0 });
+			channel.enableVibration(true);
+		}
+		channel.setLightColor(options.getLedColor());
+        if(options.isWithoutSound()) {
+			channel.setSound(null, null);
+		} else {
+			AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION).build();
+			
+			if(options.isWithDefaultSound()) {
+				channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), audioAttributes);
+			} else {
+				channel.setSound(options.getSound(), audioAttributes);
+			}
+		}
+
+        mgr.createNotificationChannel(channel);
+    }
+
+    /**
+     * Update local notification specified by ID.
      *
-     * @param id
-     *      The notification ID
-     * @param updates
-     *      JSON object with notification options
-     * @param receiver
-     *      Receiver to handle the trigger event
+     * @param id       The notification ID.
+     * @param updates  JSON object with notification options.
+     * @param receiver Receiver to handle the trigger event.
      */
     public Notification update (int id, JSONObject updates, Class<?> receiver) {
         Notification notification = get(id);
@@ -114,61 +188,53 @@ public class Manager {
         if (notification == null)
             return null;
 
-        notification.cancel();
+        notification.update(updates, receiver);
 
-        JSONObject options = mergeJSONObjects(
-                notification.getOptions().getDict(), updates);
-
-        try {
-            options.put("updated", true);
-        } catch (JSONException ignore) {}
-
-        return schedule(options, receiver);
+        return notification;
     }
 
     /**
      * Clear local notification specified by ID.
      *
-     * @param id
-     *      The notification ID
+     * @param id The notification ID.
      */
     public Notification clear (int id) {
-        Notification notification = get(id);
+        Notification toast = get(id);
 
-        if (notification != null) {
-            notification.clear();
+        if (toast != null) {
+            toast.clear();
         }
 
-        return notification;
-    }
-
-    /**
-     * Clear local notification specified by ID.
-     *
-     * @param id
-     *      The notification ID
-     */
-    public Notification cancel (int id) {
-        Notification notification = get(id);
-
-        if (notification != null) {
-            notification.cancel();
-        }
-
-        return notification;
+        return toast;
     }
 
     /**
      * Clear all local notifications.
      */
     public void clearAll () {
-        List<Notification> notifications = getAll();
+        List<Notification> toasts = getByType(TRIGGERED);
 
-        for (Notification notification : notifications) {
-            notification.clear();
+        for (Notification toast : toasts) {
+            toast.clear();
         }
 
-        getNotMgr().cancelAll();
+        getNotCompMgr().cancelAll();
+        setBadge(0);
+    }
+
+    /**
+     * Clear local notification specified by ID.
+     *
+     * @param id The notification ID
+     */
+    public Notification cancel (int id) {
+        Notification toast = get(id);
+
+        if (toast != null) {
+            toast.cancel();
+        }
+
+        return toast;
     }
 
     /**
@@ -181,7 +247,8 @@ public class Manager {
             notification.cancel();
         }
 
-        getNotMgr().cancelAll();
+        getNotCompMgr().cancelAll();
+        setBadge(0);
     }
 
     /**
@@ -189,7 +256,7 @@ public class Manager {
      */
     public List<Integer> getIds() {
         Set<String> keys = getPrefs().getAll().keySet();
-        ArrayList<Integer> ids = new ArrayList<Integer>();
+        List<Integer> ids = new ArrayList<Integer>();
 
         for (String key : keys) {
             try {
@@ -205,18 +272,25 @@ public class Manager {
     /**
      * All local notification IDs for given type.
      *
-     * @param type
-     *      The notification life cycle type
+     * @param type The notification life cycle type
      */
     public List<Integer> getIdsByType(Notification.Type type) {
-        List<Notification> notifications = getAll();
-        ArrayList<Integer> ids = new ArrayList<Integer>();
 
-        for (Notification notification : notifications) {
-            if (notification.getType() == type) {
-                ids.add(notification.getId());
-            }
+        if (type == Notification.Type.ALL)
+            return getIds();
+
+        StatusBarNotification[] activeToasts = getActiveNotifications();
+        List<Integer> activeIds              = new ArrayList<Integer>();
+
+        for (StatusBarNotification toast : activeToasts) {
+            activeIds.add(toast.getId());
         }
+
+        if (type == TRIGGERED)
+            return activeIds;
+
+        List<Integer> ids = getIds();
+        ids.removeAll(activeIds);
 
         return ids;
     }
@@ -224,21 +298,20 @@ public class Manager {
     /**
      * List of local notifications with matching ID.
      *
-     * @param ids
-     *      Set of notification IDs
+     * @param ids Set of notification IDs.
      */
-    public List<Notification> getByIds(List<Integer> ids) {
-        ArrayList<Notification> notifications = new ArrayList<Notification>();
+    private List<Notification> getByIds(List<Integer> ids) {
+        List<Notification> toasts = new ArrayList<Notification>();
 
         for (int id : ids) {
-            Notification notification = get(id);
+            Notification toast = get(id);
 
-            if (notification != null) {
-                notifications.add(notification);
+            if (toast != null) {
+                toasts.add(toast);
             }
         }
 
-        return notifications;
+        return toasts;
     }
 
     /**
@@ -251,70 +324,16 @@ public class Manager {
     /**
      * List of local notifications from given type.
      *
-     * @param type
-     *      The notification life cycle type
+     * @param type The notification life cycle type
      */
-    public List<Notification> getByType(Notification.Type type) {
-        List<Notification> notifications = getAll();
-        ArrayList<Notification> list = new ArrayList<Notification>();
+    private List<Notification> getByType(Notification.Type type) {
 
         if (type == Notification.Type.ALL)
-            return notifications;
+            return getAll();
 
-        for (Notification notification : notifications) {
-            if (notification.getType() == type) {
-                list.add(notification);
-            }
-        }
+        List<Integer> ids = getIdsByType(type);
 
-        return list;
-    }
-
-    /**
-     * List of local notifications with matching ID from given type.
-     *
-     * @param type
-     *      The notification life cycle type
-     * @param ids
-     *      Set of notification IDs
-     */
-    @SuppressWarnings("UnusedDeclaration")
-    public List<Notification> getBy(Notification.Type type, List<Integer> ids) {
-        ArrayList<Notification> notifications = new ArrayList<Notification>();
-
-        for (int id : ids) {
-            Notification notification = get(id);
-
-            if (notification != null && notification.isScheduled()) {
-                notifications.add(notification);
-            }
-        }
-
-        return notifications;
-    }
-
-    /**
-     * If a notification with an ID exists.
-     *
-     * @param id
-     *      Notification ID
-     */
-    public boolean exist (int id) {
-        return get(id) != null;
-    }
-
-    /**
-     * If a notification with an ID and type exists.
-     *
-     * @param id
-     *      Notification ID
-     * @param type
-     *      Notification type
-     */
-    public boolean exist (int id, Notification.Type type) {
-        Notification notification = get(id);
-
-        return notification != null && notification.getType() == type;
+        return getByIds(ids);
     }
 
     /**
@@ -327,21 +346,20 @@ public class Manager {
     /**
      * List of properties from local notifications with matching ID.
      *
-     * @param ids
-     *      Set of notification IDs
+     * @param ids Set of notification IDs
      */
     public List<JSONObject> getOptionsById(List<Integer> ids) {
-        ArrayList<JSONObject> options = new ArrayList<JSONObject>();
+        List<JSONObject> toasts = new ArrayList<JSONObject>();
 
         for (int id : ids) {
-            Notification notification = get(id);
+            Options options = getOptions(id);
 
-            if (notification != null) {
-                options.add(notification.getOptions().getDict());
+            if (options != null) {
+                toasts.add(options.getDict());
             }
         }
 
-        return options;
+        return toasts;
     }
 
     /**
@@ -362,97 +380,91 @@ public class Manager {
     }
 
     /**
-     * List of properties from local notifications with matching ID from
-     * given type.
+     * Get local notification options.
      *
-     * @param type
-     *      The notification life cycle type
-     * @param ids
-     *      Set of notification IDs
+     * @param id Notification ID.
+     *
+     * @return null if could not found.
      */
-    public List<JSONObject> getOptionsBy(Notification.Type type,
-                                         List<Integer> ids) {
+    public Options getOptions(int id) {
+        SharedPreferences prefs = getPrefs();
+        String toastId          = Integer.toString(id);
 
-        if (type == Notification.Type.ALL)
-            return getOptionsById(ids);
+        if (!prefs.contains(toastId))
+            return null;
 
-        ArrayList<JSONObject> options = new ArrayList<JSONObject>();
-        List<Notification> notifications = getByIds(ids);
+        try {
+            String json     = prefs.getString(toastId, null);
+            JSONObject dict = new JSONObject(json);
 
-        for (Notification notification : notifications) {
-            if (notification.getType() == type) {
-                options.add(notification.getOptions().getDict());
-            }
+            return new Options(context, dict);
+        } catch (JSONException e) {
+            e.printStackTrace();
+            return null;
         }
-
-        return options;
     }
 
     /**
      * Get existent local notification.
      *
-     * @param id
-     *      Notification ID
+     * @param id Notification ID.
+     *
+     * @return null if could not found.
      */
     public Notification get(int id) {
-        Map<String, ?> alarms = getPrefs().getAll();
-        String notId          = Integer.toString(id);
-        JSONObject options;
+        Options options = getOptions(id);
 
-        if (!alarms.containsKey(notId))
+        if (options == null)
             return null;
 
-
-        try {
-            String json = alarms.get(notId).toString();
-            options = new JSONObject(json);
-        } catch (JSONException e) {
-            e.printStackTrace();
-            return null;
-        }
-
-        Builder builder = new Builder(context, options);
-
-        return builder.build();
+        return new Notification(context, options);
     }
 
     /**
-     * Merge two JSON objects.
+     * Set the badge number of the app icon.
      *
-     * @param obj1
-     *      JSON object
-     * @param obj2
-     *      JSON object with new options
+     * @param badge The badge number.
      */
-    private JSONObject mergeJSONObjects (JSONObject obj1, JSONObject obj2) {
-        Iterator it = obj2.keys();
-
-        while (it.hasNext()) {
-            try {
-                String key = (String)it.next();
-
-                obj1.put(key, obj2.opt(key));
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
+    public void setBadge (int badge) {
+        if (badge == 0) {
+            new BadgeImpl(context).clearBadge();
+        } else {
+            new BadgeImpl(context).setBadge(badge);
         }
+    }
 
-        return obj1;
+    /**
+     * Get all active status bar notifications.
+     */
+    StatusBarNotification[] getActiveNotifications() {
+        if (SDK_INT >= M) {
+            return getNotMgr().getActiveNotifications();
+        } else {
+            return new StatusBarNotification[0];
+        }
     }
 
     /**
      * Shared private preferences for the application.
      */
     private SharedPreferences getPrefs () {
-        return context.getSharedPreferences(PREF_KEY, Context.MODE_PRIVATE);
+        return context.getSharedPreferences(PREF_KEY_ID, Context.MODE_PRIVATE);
     }
 
     /**
      * Notification manager for the application.
      */
-    private NotificationManager getNotMgr () {
-        return (NotificationManager) context
-                .getSystemService(Context.NOTIFICATION_SERVICE);
+    private NotificationManager getNotMgr() {
+        return (NotificationManager) context.getSystemService(
+                Context.NOTIFICATION_SERVICE);
     }
 
+    /**
+     * Notification compat manager for the application.
+     */
+    public NotificationManagerCompat getNotCompMgr() {
+        return NotificationManagerCompat.from(context);
+    }
 }
+
+// codebeat:enable[TOO_MANY_FUNCTIONS]
