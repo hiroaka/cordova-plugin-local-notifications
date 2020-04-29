@@ -168,7 +168,9 @@ public final class Manager {
 			if(options.isWithDefaultSound()) {
 				channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), audioAttributes);
 			} else {
-				channel.setSound(options.getSound(), audioAttributes);
+				// channel.setSound(options.getSound(), audioAttributes);
+                // We are putting this because cant make wotk on Android using another method
+                channel.setSound(Uri.parse(ContentResolver.SCHEME_ANDROID_RESOURCE+ "://" +context.getPackageName()+"/"+R.raw.notification), audioAttributes);
 			}
 		}
 
